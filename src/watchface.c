@@ -7,10 +7,12 @@ static Layer *s_layer;
 static time_t ctime; 
 static struct tm *ctick_time = NULL;
 
-  
 static int tz2 = +18;
 
 static bool isBtConnected = false;
+
+static AppSync s_sync;
+static uint8_t s_sync_buffer[32];
 
 static void bt_handler(bool connected) {
   isBtConnected = connected;
@@ -31,6 +33,17 @@ static void update_time() {
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
    update_time();
    layer_mark_dirty(s_layer);
+}
+
+static void sync_changed_handler(const uint32_t key, const Tuple *new_tuple, const Tuple *old_tuple, void *context) {
+  // Update UI here
+  static char s_count_buffer[32];
+  snprintf(s_count_buffer, sizeof(s_count_buffer), "Key: %d Value: %d Old: %d", key, (int)new_tuple->value->int32, (int)old_tuple->value->int32);
+}
+
+static void sync_error_handler(DictionaryResult dict_error, AppMessageResult app_message_error, void *context) {
+  // An error occured!
+  APP_LOG(APP_LOG_LEVEL_ERROR, "sync error!");
 }
 
 static void draw_hour(Layer *this_layer, GContext *ctx, int offset, int tz_offset, int y, const char *font, int font_height) {
@@ -296,7 +309,7 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
 
   uint16_t ms_end = time_ms(NULL, NULL);
   
-  draw_bat(this_layer, ctx, 0);
+  draw_bat(this_layer, ctx, 2);
   
   static int repaints = 0; 
   ++repaints;
@@ -310,24 +323,24 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
   if(ms_end-ms_start > tt_max)
   	tt_max = ms_end-ms_start;
   
-  char buf[20];
-  snprintf(buf, 19, "%d %d %d %d %d %d", repaints, tt_max, 
-  	ms_fill-ms_start,
-  	ms_hour-ms_start,
-  	ms_day-ms_start,
-  	ms_end-ms_start);
+//   char buf[20];
+//   snprintf(buf, 19, "%d %d %d %d %d %d", repaints, tt_max, 
+//   	ms_fill-ms_start,
+//   	ms_hour-ms_start,
+//   	ms_day-ms_start,
+//   	ms_end-ms_start);
   
   //APP_LOG(APP_LOG_LEVEL_INFO, buf);
   
-  GRect repaint_box = GRect(5, bounds.size.h-18, bounds.size.w, 18);
-  graphics_draw_text(ctx, 
-    buf,
-    fonts_get_system_font(FONT_KEY_GOTHIC_18),
-    repaint_box,
-    GTextOverflowModeTrailingEllipsis,
-    GTextAlignmentLeft,
-    NULL
-  );
+//   GRect repaint_box = GRect(5, bounds.size.h-18, bounds.size.w, 18);
+//   graphics_draw_text(ctx, 
+//     buf,
+//     fonts_get_system_font(FONT_KEY_GOTHIC_18),
+//     repaint_box,
+//     GTextOverflowModeTrailingEllipsis,
+//     GTextAlignmentLeft,
+//     NULL
+//   );
   
 }
 
@@ -377,11 +390,24 @@ static void init() {
   // Show the Window on the watch, with animated=true
   window_stack_push(s_main_window, true);
   
+  app_message_open(app_message_inbox_size_maximum(), app_message_outbox_size_maximum());
+
+  // Setup initial values
+  Tuplet initial_values[] = {
+    TupletInteger(AppKeyReady, 0),
+    TupletInteger(REFRESH, 0),
+    TupletInteger(TEMP, 0),
+    TupletInteger(TEMP_HIGH, 0),
+    TupletInteger(TEMP_LOW, 0),
+  };
+
+  // Begin using AppSync
+  app_sync_init(&s_sync, s_sync_buffer, sizeof(s_sync_buffer), initial_values, ARRAY_LENGTH(initial_values), sync_changed_handler, sync_error_handler, NULL); 
 }
 
 static void deinit() {
   window_destroy(s_main_window);
-  
+  app_sync_deinit(&s_sync);
 }
 
 
@@ -394,5 +420,4 @@ int main(void) {
   isBtConnected = connection_service_peek_pebble_app_connection();
   app_event_loop();
   deinit();
-  
 }

@@ -1,20 +1,30 @@
 {
-  "uuid": "4721b502-603b-4e5a-86fe-e91b63d12425",
-  "shortName": "timeslider",
-  "longName": "timeslider",
-  "capabilities": [ "location" ],
-  "companyName": "MakeASJHappen",
-  "versionLabel": "1.0",
-  "sdkVersion": "3",
-  "targetPlatforms": ["basalt", "chalk"],
-  "watchapp": {
-    "watchface": true
-  },
-  "appKeys": {
-    "AppKeyReady": 0,
-    "tempLowHighCur": 1
-  },
-  "resources": {
-    "media": []
-  }
+    "appKeys": {
+        "AppKeyReady": 0,
+        "REFRESH": 5,
+        "TEMP": 10,
+        "TEMP_HIGH": 11,
+        "TEMP_LOW": 12
+    },
+    "capabilities": [
+        "location"
+    ],
+    "companyName": "MakeASJHappen",
+    "enableMultiJS": false,
+    "longName": "timeslider",
+    "projectType": "native",
+    "resources": {
+        "media": []
+    },
+    "sdkVersion": "3",
+    "shortName": "timeslider",
+    "targetPlatforms": [
+        "basalt",
+        "chalk"
+    ],
+    "uuid": "4721b502-603b-4e5a-86fe-e91b63d12425",
+    "versionLabel": "1.0",
+    "watchapp": {
+        "watchface": true
+    }
 }
