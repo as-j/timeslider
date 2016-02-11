@@ -1,0 +1,20 @@
+{
+  "uuid": "4721b502-603b-4e5a-86fe-e91b63d12425",
+  "shortName": "timeslider",
+  "longName": "timeslider",
+  "capabilities": [ "location" ],
+  "companyName": "MakeASJHappen",
+  "versionLabel": "1.0",
+  "sdkVersion": "3",
+  "targetPlatforms": ["basalt", "chalk"],
+  "watchapp": {
+    "watchface": true
+  },
+  "appKeys": {
+    "AppKeyReady": 0,
+    "tempLowHighCur": 1
+  },
+  "resources": {
+    "media": []
+  }
+}
