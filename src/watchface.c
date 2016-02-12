@@ -7,12 +7,19 @@ static Layer *s_layer;
 static time_t ctime; 
 static struct tm *ctick_time = NULL;
 
+#define INVALID_TEMP 250  
+static int temp = INVALID_TEMP;
+
 static int tz2 = +18;
 
 static bool isBtConnected = false;
 
 static AppSync s_sync;
 static uint8_t s_sync_buffer[32];
+
+#define AppKeyReady 1
+#define REFRESH 5
+#define TEMP 10
 
 static void bt_handler(bool connected) {
   isBtConnected = connected;
@@ -37,8 +44,13 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
 
 static void sync_changed_handler(const uint32_t key, const Tuple *new_tuple, const Tuple *old_tuple, void *context) {
   // Update UI here
-  static char s_count_buffer[32];
-  snprintf(s_count_buffer, sizeof(s_count_buffer), "Key: %d Value: %d Old: %d", key, (int)new_tuple->value->int32, (int)old_tuple->value->int32);
+  APP_LOG(APP_LOG_LEVEL_ERROR, "Key: %d Value: %d %d %d", (int)key, (int)new_tuple->value->int32, new_tuple->type, new_tuple->length);
+  switch(key) {
+    case TEMP:
+      temp = new_tuple->value->int32;
+      layer_mark_dirty(s_layer);
+      break;
+  }
 }
 
 static void sync_error_handler(DictionaryResult dict_error, AppMessageResult app_message_error, void *context) {
@@ -152,6 +164,81 @@ static void draw_minutes(Layer *this_layer, GContext *ctx, int y) {
 
 }
 
+static void draw_temp(Layer *this_layer, GContext *ctx, int y) {
+  GRect bounds = layer_get_bounds(this_layer);
+
+  int16_t deg_per_pixel = (20*bounds.size.w)/100;
+  
+  int16_t deg;
+  int16_t offset = 0-temp*deg_per_pixel/10;
+  
+  for(deg = -60; deg <= 60; deg += 5) {
+      if (deg%15) {
+  	    int16_t x = deg*deg_per_pixel/10+offset+bounds.size.w/2;
+  	    if (x > 0 && x < bounds.size.w)
+    	  	graphics_draw_line(ctx, GPoint(x, y), GPoint(x, y+3));
+      }
+  }
+
+  for(deg = -60; deg <= 60; deg += 15) {
+  	  int16_t x = deg*deg_per_pixel/10+offset;
+  	  
+  	  GRect frame = GRect(x, y-12, bounds.size.w, 18);
+  	  
+  	  static char s_buffer[4];
+  	  snprintf(s_buffer, 4, "%d", deg);
+  	  
+  	  graphics_draw_text(ctx, 
+  	  	s_buffer,
+    	fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+    	frame,
+    	GTextOverflowModeTrailingEllipsis,
+    	GTextAlignmentCenter,
+    	NULL
+  	  );  	  
+  	    
+  }
+}
+
+#define GREATER(x,y) ((x>y) ? (x) : (y))
+
+static void draw_step(Layer *this_layer, GContext *ctx, int y, int total_steps) {
+  GRect bounds = layer_get_bounds(this_layer);
+
+  int16_t step_per_pixel = (bounds.size.w)/100;
+  
+  int16_t offset = 0-total_steps*step_per_pixel/10;
+  
+  int step = total_steps-(total_steps % 100);
+  for(step = GREATER(step-1000, 0); step <= total_steps+1000; step += 100) {
+      if (step%500) {
+  	    int16_t x = step*step_per_pixel/10+offset+bounds.size.w/2;
+  	    if (x > 0 && x < bounds.size.w)
+    	  	graphics_draw_line(ctx, GPoint(x, y), GPoint(x, y+3));
+      }
+  }
+
+  step = total_steps-(total_steps % 500);
+  for(step = GREATER(step-1000, 0); step <= total_steps+1000; step += 500) {
+  	  int16_t x = step*step_per_pixel/10+offset;
+  	  
+  	  GRect frame = GRect(x, y-8, bounds.size.w, 14);
+  	  
+  	  static char s_buffer[8];
+  	  snprintf(s_buffer, 8, "%d", step);
+  	  
+  	  graphics_draw_text(ctx, 
+  	  	s_buffer,
+    	fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+    	frame,
+    	GTextOverflowModeTrailingEllipsis,
+    	GTextAlignmentCenter,
+    	NULL
+  	  );  	  
+  	    
+  }
+}
+
 static void draw_day(Layer *this_layer, GContext *ctx, int day, int y) {
   GRect bounds = layer_get_bounds(this_layer);
 
@@ -242,9 +329,9 @@ static void draw_bat(Layer *this_layer, GContext *ctx, int y) {
   int ye = 25; // 50-25 
   int r = 25; // 25-0
   
-  GRect green  = GRect(offset, y, width*g/100, 6);
-  GRect yellow = GRect(green.origin.x+green.size.w,   y, width*ye/100, 6);
-  GRect red =    GRect(yellow.origin.x+yellow.size.w, y, width*r/100, 6);
+  GRect green  = GRect(offset, y, width*g/100, 8);
+  GRect yellow = GRect(green.origin.x+green.size.w,   y, width*ye/100, 8);
+  GRect red =    GRect(yellow.origin.x+yellow.size.w, y, width*r/100, 8);
   
   graphics_context_set_fill_color(ctx, GColorGreen);
   graphics_fill_rect(ctx, green, 0, GCornerNone);
@@ -306,10 +393,25 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
   draw_day(this_layer, ctx, 2, day_loc);
 
   draw_day_ticks(this_layer, ctx, bounds.size.h/2-49/2-12);
+  
+  draw_temp(this_layer, ctx, bounds.size.h/2+75);
 
   uint16_t ms_end = time_ms(NULL, NULL);
   
-  draw_bat(this_layer, ctx, 2);
+  draw_bat(this_layer, ctx, 0);
+  
+#if defined(PBL_HEALTH)
+  // Check step data is available
+  HealthServiceAccessibilityMask mask = health_service_metric_accessible(HealthMetricStepCount, 
+                                                                    time_start_of_today(), ctime);
+  
+  if(mask & HealthServiceAccessibilityMaskAvailable) {
+    // Data is available!
+    int total_steps = (int)health_service_sum_today(HealthMetricStepCount);
+    APP_LOG(APP_LOG_LEVEL_INFO, "Steps today: %d", total_steps);
+    draw_step(this_layer, ctx, 25, total_steps);
+  }
+#endif
   
   static int repaints = 0; 
   ++repaints;
@@ -395,14 +497,12 @@ static void init() {
   // Setup initial values
   Tuplet initial_values[] = {
     TupletInteger(AppKeyReady, 0),
-    TupletInteger(REFRESH, 0),
-    TupletInteger(TEMP, 0),
-    TupletInteger(TEMP_HIGH, 0),
-    TupletInteger(TEMP_LOW, 0),
+    TupletInteger(TEMP, INVALID_TEMP),
   };
 
   // Begin using AppSync
   app_sync_init(&s_sync, s_sync_buffer, sizeof(s_sync_buffer), initial_values, ARRAY_LENGTH(initial_values), sync_changed_handler, sync_error_handler, NULL); 
+  
 }
 
 static void deinit() {

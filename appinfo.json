@@ -1,13 +1,11 @@
 {
     "appKeys": {
         "AppKeyReady": 0,
-        "REFRESH": 5,
-        "TEMP": 10,
-        "TEMP_HIGH": 11,
-        "TEMP_LOW": 12
+        "TEMP": 10
     },
     "capabilities": [
-        "location"
+        "location",
+        "health"
     ],
     "companyName": "MakeASJHappen",
     "enableMultiJS": false,

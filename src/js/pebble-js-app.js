@@ -13,15 +13,11 @@ function getTemp(lat, lon) {
 	  if (req.readyState == 4 && req.status == 200) {
 	  	if(req.status == 200) {
 		    var response = JSON.parse(req.responseText);
-	  	  console.log(response);
-        var temp = response.main.temp-273.15;
-        var temp_high = response.main.temp_high-273.15;
-        var temp_low = response.main.temp_low-273.15;
+        var temp = Number(response.main.temp-273.15).toFixed(0);
 // 		    var icon = response.list[0].main.icon;
-		    Pebble.sendAppMessage({ 'temp':temp,
-                               'temp_high':temp_high,
-                               'temp_low':temp_low});
-        console.log('temp: ' + temp);
+        var dict = { "TEMP": Number(temp)};
+        Pebble.sendAppMessage(dict);
+        console.log('temp: ' + temp );
 		  } else { 
         console.log('Error'); 
       }
@@ -55,11 +51,14 @@ Pebble.addEventListener('ready', function(e) {
   console.log('JavaScript app ready and running!');
   
     // Notify the watchapp that it is now safe to send messages
-  Pebble.sendAppMessage({ 'AppKeyReady': true });
+  Pebble.sendAppMessage({ 'AppKeyReady': 1 });
   
   setInterval(updateWeather, 3600000);
   updateWeather();
 });
 
+Pebble.addEventListener('appmessage', function(e) {
+  console.log('AppMessage received!');
+});
 
 
