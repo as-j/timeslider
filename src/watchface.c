@@ -9,16 +9,14 @@ static struct tm *ctick_time = NULL;
 
 #define INVALID_TEMP 250  
 static int temp = INVALID_TEMP;
+static time_t temp_age = 0;
 
 static int tz2 = +18;
 
 static bool isBtConnected = false;
 
-static AppSync s_sync;
-static uint8_t s_sync_buffer[32];
-
 #define AppKeyReady 1
-#define REFRESH 5
+#define REFRESH 2
 #define TEMP 10
 
 static void bt_handler(bool connected) {
@@ -42,20 +40,34 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
    layer_mark_dirty(s_layer);
 }
 
-static void sync_changed_handler(const uint32_t key, const Tuple *new_tuple, const Tuple *old_tuple, void *context) {
-  // Update UI here
-  APP_LOG(APP_LOG_LEVEL_ERROR, "Key: %d Value: %d %d %d", (int)key, (int)new_tuple->value->int32, new_tuple->type, new_tuple->length);
-  switch(key) {
-    case TEMP:
-      temp = new_tuple->value->int32;
-      layer_mark_dirty(s_layer);
-      break;
-  }
+static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Message received!");
+    // Get the first pair
+  Tuple *data = dict_read_first(iterator);
+  while (data) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "Key received: %d", (int)data->key);
+    switch(data->key) {
+      case TEMP:
+        temp = data->value->int32;
+        temp_age = ctime;
+        layer_mark_dirty(s_layer);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Temp received: %d", temp);
+        break;
+    }
+    data = dict_read_next(iterator);
+  } 
 }
 
-static void sync_error_handler(DictionaryResult dict_error, AppMessageResult app_message_error, void *context) {
-  // An error occured!
-  APP_LOG(APP_LOG_LEVEL_ERROR, "sync error!");
+static void inbox_dropped_callback(AppMessageResult reason, void *context) {
+  APP_LOG(APP_LOG_LEVEL_ERROR, "Message dropped!");
+}
+
+static void outbox_failed_callback(DictionaryIterator *iterator, AppMessageResult reason, void *context) {
+  APP_LOG(APP_LOG_LEVEL_ERROR, "Outbox send failed!");
+}
+
+static void outbox_sent_callback(DictionaryIterator *iterator, void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Outbox send success!");
 }
 
 static void draw_hour(Layer *this_layer, GContext *ctx, int offset, int tz_offset, int y, const char *font, int font_height) {
@@ -329,15 +341,24 @@ static void draw_bat(Layer *this_layer, GContext *ctx, int y) {
   int ye = 25; // 50-25 
   int r = 25; // 25-0
   
-  GRect green  = GRect(offset, y, width*g/100, 8);
-  GRect yellow = GRect(green.origin.x+green.size.w,   y, width*ye/100, 8);
-  GRect red =    GRect(yellow.origin.x+yellow.size.w, y, width*r/100, 8);
+#ifdef PBL_COLOR
+  int height = 8;
+#else
+  int height = 4;
+#endif
   
-  graphics_context_set_fill_color(ctx, GColorGreen);
+  GRect green  = GRect(offset, y, width*g/100, height);
+  GRect yellow = GRect(green.origin.x+green.size.w,   y, width*ye/100, height);
+#ifndef PBL_COLOR
+  height /= 2;
+#endif
+  GRect red =    GRect(yellow.origin.x+yellow.size.w, y, width*r/100, height);
+  
+  graphics_context_set_fill_color(ctx,  COLOR_FALLBACK(GColorGreen, GColorWhite));
   graphics_fill_rect(ctx, green, 0, GCornerNone);
-  graphics_context_set_fill_color(ctx, GColorYellow);
+  graphics_context_set_fill_color(ctx, COLOR_FALLBACK(GColorYellow, GColorLightGray));
   graphics_fill_rect(ctx, yellow, 0, GCornerNone);
-  graphics_context_set_fill_color(ctx, GColorRed);
+  graphics_context_set_fill_color(ctx, COLOR_FALLBACK(GColorRed, GColorDarkGray));
   graphics_fill_rect(ctx, red, 0, GCornerNone);
   
 
@@ -362,9 +383,13 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, GColorBlack);    
     
   uint16_t ms_fill = time_ms(NULL, NULL);
-
-  graphics_context_set_stroke_color(ctx, GColorRed);
-  graphics_context_set_stroke_width(ctx, 3);
+  
+  graphics_context_set_stroke_color(ctx, COLOR_FALLBACK(GColorRed, GColorWhite));
+#ifdef PBL_PLATFORM_APLITE
+  graphics_context_set_stroke_width(ctx, 1);
+#else
+    graphics_context_set_stroke_width(ctx, 3);
+#endif 
   graphics_draw_line(ctx, GPoint(bounds.size.w/2, 0), GPoint(bounds.size.w/2, bounds.size.h));
   
   graphics_context_set_stroke_color(ctx, GColorWhite);
@@ -394,7 +419,22 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
 
   draw_day_ticks(this_layer, ctx, bounds.size.h/2-49/2-12);
   
-  draw_temp(this_layer, ctx, bounds.size.h/2+75);
+  if (temp != INVALID_TEMP) {
+    draw_temp(this_layer, ctx, bounds.size.h/2+75);
+  } 
+  
+  if ((ctime-temp_age) > 5400) {
+    // Prepare dictionary
+    DictionaryIterator *iterator;
+    app_message_outbox_begin(&iterator);
+    // Write data
+    int key = REFRESH;
+    int value = 1;
+    dict_write_int(iterator, key, &value, sizeof(int), true /* signed */);
+    // Send the data!
+    app_message_outbox_send();
+    temp_age = ctime; // only ask every 90 minutes....
+  }
 
   uint16_t ms_end = time_ms(NULL, NULL);
   
@@ -408,7 +448,6 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
   if(mask & HealthServiceAccessibilityMaskAvailable) {
     // Data is available!
     int total_steps = (int)health_service_sum_today(HealthMetricStepCount);
-    APP_LOG(APP_LOG_LEVEL_INFO, "Steps today: %d", total_steps);
     draw_step(this_layer, ctx, 25, total_steps);
   }
 #endif
@@ -492,22 +531,18 @@ static void init() {
   // Show the Window on the watch, with animated=true
   window_stack_push(s_main_window, true);
   
-  app_message_open(app_message_inbox_size_maximum(), app_message_outbox_size_maximum());
-
-  // Setup initial values
-  Tuplet initial_values[] = {
-    TupletInteger(AppKeyReady, 0),
-    TupletInteger(TEMP, INVALID_TEMP),
-  };
-
-  // Begin using AppSync
-  app_sync_init(&s_sync, s_sync_buffer, sizeof(s_sync_buffer), initial_values, ARRAY_LENGTH(initial_values), sync_changed_handler, sync_error_handler, NULL); 
+  // Register callbacks
+  app_message_register_inbox_received(inbox_received_callback);
+  app_message_register_inbox_dropped(inbox_dropped_callback);
+  app_message_register_outbox_failed(outbox_failed_callback);
+  app_message_register_outbox_sent(outbox_sent_callback);
   
+  app_message_open(64, 64);
+
 }
 
 static void deinit() {
   window_destroy(s_main_window);
-  app_sync_deinit(&s_sync);
 }
 
 

@@ -1,6 +1,7 @@
 {
     "appKeys": {
         "AppKeyReady": 0,
+        "REFRESH": 2,
         "TEMP": 10
     },
     "capabilities": [
@@ -17,6 +18,7 @@
     "sdkVersion": "3",
     "shortName": "timeslider",
     "targetPlatforms": [
+        "aplite",
         "basalt",
         "chalk"
     ],

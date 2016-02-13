@@ -58,7 +58,10 @@ Pebble.addEventListener('ready', function(e) {
 });
 
 Pebble.addEventListener('appmessage', function(e) {
-  console.log('AppMessage received!');
+  console.log('AppMessage received! '+ JSON.stringify(e.payload));
+  if (e.payload.REFRESH == 1) {
+    updateWeather();
+  }
 });
 
 
