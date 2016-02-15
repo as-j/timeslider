@@ -64,4 +64,30 @@ Pebble.addEventListener('appmessage', function(e) {
   }
 });
 
+Pebble.addEventListener('showConfiguration', function(e) {
+  // Show config page
+  Pebble.openURL('http://cban.com/~asj/pebble/timeslider/');
+});
+
+Pebble.addEventListener('webviewclosed', function(e) {
+  // Decode and parse config data as JSON
+  var config_data = JSON.parse(decodeURIComponent(e.response));
+  console.log('Config window returned: ', JSON.stringify(config_data));
+
+  // Prepare AppMessage payload
+  var dict = {
+    'CONFIG_TZ_OFFSET': Number(config_data.config_tz_offset),
+    'CONFIG_METRIC': config_data.config_metric,
+    'CONFIG_BUZZ': config_data.config_buzz,
+    'CONFIG_BUZZ_MUTE': config_data.config_buzz_mute
+  };
+
+  // Send settings to Pebble watchapp
+  Pebble.sendAppMessage(dict, function(){
+    console.log('Sent config data to Pebble');  
+  }, function() {
+    console.log('Failed to send config data!');
+  });
+});
+
 

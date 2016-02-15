@@ -12,6 +12,9 @@ static int temp = INVALID_TEMP;
 static time_t temp_age = 0;
 
 static int tz2 = +18;
+static int metric = 1;
+static int buzz = 1;
+static int buzz_mute = 1;
 
 static bool isBtConnected = false;
 
@@ -19,13 +22,31 @@ static bool isBtConnected = false;
 #define REFRESH 2
 #define TEMP 10
 
+#define CONFIG_TZ_OFFSET 20
+#define CONFIG_METRIC    21
+#define CONFIG_BUZZ      22
+#define CONFIG_BUZZ_MUTE 23
+
 static void bt_handler(bool connected) {
   isBtConnected = connected;
   
-  if(connected)
-  	vibes_short_pulse();
-  else
-  	vibes_double_pulse();
+  if (buzz) {
+    int ok = 1;
+    if (buzz_mute == 1) {
+      int sec = time_start_of_today();
+      if (sec < (3600*6))
+        ok = 0;
+      if (sec > (3600*22))
+        ok = 0;
+    } 
+    if (ok) {
+      if(connected) {
+    	  vibes_short_pulse();
+      } else {
+  	    vibes_double_pulse();
+      }
+    }
+  }
   layer_mark_dirty(s_layer);
 }
 
@@ -50,12 +71,33 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
       case TEMP:
         temp = data->value->int32;
         temp_age = ctime;
-        layer_mark_dirty(s_layer);
         APP_LOG(APP_LOG_LEVEL_INFO, "Temp received: %d", temp);
         break;
+      case CONFIG_TZ_OFFSET:
+        tz2 = data->value->int32;
+        persist_write_int(CONFIG_TZ_OFFSET, tz2);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Tz2: %d", tz2);
+        break;
+      case CONFIG_METRIC:
+        metric = data->value->int32;
+        persist_write_int(CONFIG_METRIC, metric);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Metric: %d", metric);
+        break;
+      case CONFIG_BUZZ:
+        buzz = data->value->int32;
+        persist_write_int(CONFIG_BUZZ, buzz);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Buzz: %d", buzz);
+        break;
+      case CONFIG_BUZZ_MUTE:
+        buzz_mute = data->value->int32;
+        persist_write_int(CONFIG_BUZZ_MUTE, buzz_mute);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Buzz Mute: %d", buzz_mute);
+        break;
+      
     }
     data = dict_read_next(iterator);
   } 
+  layer_mark_dirty(s_layer);
 }
 
 static void inbox_dropped_callback(AppMessageResult reason, void *context) {
@@ -99,7 +141,7 @@ static void draw_hour(Layer *this_layer, GContext *ctx, int offset, int tz_offse
     NULL
   );
     
-  if (offset == 0) {	  
+  if (offset == 0 && tz_offset != 0) {	  
 	  GSize size = graphics_text_layout_get_content_size(s_buffer,
 		fonts_get_system_font(font),
 		frame,
@@ -181,18 +223,25 @@ static void draw_temp(Layer *this_layer, GContext *ctx, int y) {
 
   int16_t deg_per_pixel = (20*bounds.size.w)/100;
   
-  int16_t deg;
-  int16_t offset = 0-temp*deg_per_pixel/10;
+  int16_t temp_conv = temp;
+  if (!metric)
+    temp_conv = 90*temp/50 + 32;
   
-  for(deg = -60; deg <= 60; deg += 5) {
-      if (deg%15) {
+  int16_t deg;
+  int16_t offset = 0-temp_conv*deg_per_pixel/10;
+  
+  int16_t tbase = temp_conv - temp_conv%10;
+  
+  for(deg = tbase-20; deg <= tbase+20; deg += 2) {
+      int th = deg%10;
+      if (th > 2 || th < 8) {
   	    int16_t x = deg*deg_per_pixel/10+offset+bounds.size.w/2;
   	    if (x > 0 && x < bounds.size.w)
     	  	graphics_draw_line(ctx, GPoint(x, y), GPoint(x, y+3));
       }
   }
 
-  for(deg = -60; deg <= 60; deg += 15) {
+  for(deg = tbase-20; deg <= tbase+20; deg += 10) {
   	  int16_t x = deg*deg_per_pixel/10+offset;
   	  
   	  GRect frame = GRect(x, y-12, bounds.size.w, 18);
@@ -538,6 +587,16 @@ static void init() {
   app_message_register_outbox_sent(outbox_sent_callback);
   
   app_message_open(64, 64);
+  
+  if (persist_exists(CONFIG_TZ_OFFSET))
+    tz2 = persist_read_int(CONFIG_TZ_OFFSET);
+  if (persist_exists(CONFIG_METRIC))
+    metric = persist_read_int(CONFIG_METRIC);
+  if (persist_exists(CONFIG_BUZZ))
+    buzz = persist_read_int(CONFIG_BUZZ);
+  if (persist_exists(CONFIG_BUZZ_MUTE))
+    buzz_mute = persist_read_int(CONFIG_BUZZ_MUTE);
+  
 
 }
 
