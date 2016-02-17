@@ -220,8 +220,12 @@ static void draw_minutes(Layer *this_layer, GContext *ctx, int y) {
 
 static void draw_temp(Layer *this_layer, GContext *ctx, int y) {
   GRect bounds = layer_get_bounds(this_layer);
-
-  int16_t deg_per_pixel = (20*bounds.size.w)/100;
+  
+  int16_t deg_per_pixel = 0;
+  if (metric)
+    deg_per_pixel = (55*bounds.size.w)/100;
+  else
+    deg_per_pixel = (35*bounds.size.w)/100;
   
   int16_t temp_conv = temp;
   if (!metric)
@@ -234,7 +238,7 @@ static void draw_temp(Layer *this_layer, GContext *ctx, int y) {
   
   for(deg = tbase-20; deg <= tbase+20; deg += 2) {
       int th = deg%10;
-      if (th > 2 || th < 8) {
+      if (th > 1 && th < 9) {
   	    int16_t x = deg*deg_per_pixel/10+offset+bounds.size.w/2;
   	    if (x > 0 && x < bounds.size.w)
     	  	graphics_draw_line(ctx, GPoint(x, y), GPoint(x, y+3));
