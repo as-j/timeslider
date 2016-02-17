@@ -14,7 +14,7 @@
         "health"
     ],
     "companyName": "MakeASJHappen",
-    "enableMultiJS": false,
+    "enableMultiJS": true,
     "longName": "timeslider",
     "projectType": "native",
     "resources": {
@@ -28,7 +28,7 @@
         "chalk"
     ],
     "uuid": "4721b502-603b-4e5a-86fe-e91b63d12425",
-    "versionLabel": "1.3",
+    "versionLabel": "1.4",
     "watchapp": {
         "watchface": true
     }
