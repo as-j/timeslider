@@ -1,5 +1,4 @@
 #include <pebble.h>
-#include <gcolor_definitions.h>
 
 static Window *s_main_window;
 static Layer *s_layer;
@@ -74,9 +73,33 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         APP_LOG(APP_LOG_LEVEL_INFO, "Temp received: %d", temp);
         break;
       case CONFIG_TZ_OFFSET:
-        tz2 = data->value->int32;
+        switch (data->type) {
+          case TUPLE_BYTE_ARRAY:
+            APP_LOG(APP_LOG_LEVEL_INFO, "tz2 can't handle a byte array");
+            break;
+          case TUPLE_CSTRING:
+          {
+            char *str = data->value->cstring;
+            bool neg = false;
+            if (str[0] == '-') {
+              neg = true;
+              str += 1;
+            } else if(str[0] == '+') {
+              str += 1;
+            }
+            tz2 = atoi(str);
+            if (neg) {
+              tz2 *= -1;
+            }
+            break;
+          }
+          case TUPLE_INT:
+          case TUPLE_UINT:
+            tz2 = data->value->int32;
+            break;
+        }
         persist_write_int(CONFIG_TZ_OFFSET, tz2);
-        APP_LOG(APP_LOG_LEVEL_INFO, "Tz2: %d", tz2);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Tz2: %d type: %d", tz2, data->type);
         break;
       case CONFIG_METRIC:
         metric = data->value->int32;

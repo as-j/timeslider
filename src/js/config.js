@@ -1,9 +1,13 @@
 module.exports = [
-  { "type": "heading", "defaultValue": "Example Config Page" },
+  { "type": "heading", "defaultValue": "Time Slider Config Page" },
   {
     type:"section",
     items:
     [
+      {
+        type: "heading",
+        defaultValue: "UI Settings"
+      },
       {
         type:"toggle", 
         "appKey": "CONFIG_METRIC",
@@ -35,7 +39,12 @@ module.exports = [
       {
         type:"input",
         appKey:"CONFIG_TZ_OFFSET",
-        defaultValue:"+18"
+        defaultValue:"18",
+        attributes: {
+          type: "number",
+          min: "-24",
+          max: "24"
+        }
       }
     ]
   },
