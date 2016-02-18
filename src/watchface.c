@@ -102,17 +102,17 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         APP_LOG(APP_LOG_LEVEL_INFO, "Tz2: %d type: %d", tz2, data->type);
         break;
       case CONFIG_METRIC:
-        metric = data->value->int32;
+        metric = data->value->int8;
         persist_write_int(CONFIG_METRIC, metric);
-        APP_LOG(APP_LOG_LEVEL_INFO, "Metric: %d", metric);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Metric: %d %d %d %d", metric, data->value->int32, data->value->int16, data->type);
         break;
       case CONFIG_BUZZ:
-        buzz = data->value->int32;
+        buzz = data->value->int8;
         persist_write_int(CONFIG_BUZZ, buzz);
         APP_LOG(APP_LOG_LEVEL_INFO, "Buzz: %d", buzz);
         break;
       case CONFIG_BUZZ_MUTE:
-        buzz_mute = data->value->int32;
+        buzz_mute = data->value->int8;
         persist_write_int(CONFIG_BUZZ_MUTE, buzz_mute);
         APP_LOG(APP_LOG_LEVEL_INFO, "Buzz Mute: %d", buzz_mute);
         break;
