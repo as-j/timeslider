@@ -3,12 +3,16 @@
 static Window *s_main_window;
 static Layer *s_layer;
 
-static time_t ctime; 
+static time_t cur_time; 
 static struct tm *ctick_time = NULL;
 
-#define INVALID_TEMP 250  
+#define INVALID_TEMP 2500  
 static int temp = INVALID_TEMP;
+static int temp_fore_min = INVALID_TEMP;
+static int temp_fore_max = INVALID_TEMP;
+
 static time_t temp_age = 0;
+static time_t temp_fore_age = 0;
 
 static int tz2 = +18;
 static int metric = 1;
@@ -17,14 +21,7 @@ static int buzz_mute = 1;
 
 static bool isBtConnected = false;
 
-#define AppKeyReady 1
-#define REFRESH 2
-#define TEMP 10
-
-#define CONFIG_TZ_OFFSET 20
-#define CONFIG_METRIC    21
-#define CONFIG_BUZZ      22
-#define CONFIG_BUZZ_MUTE 23
+static bool isJSRunning = false;
 
 static void bt_handler(bool connected) {
   isBtConnected = connected;
@@ -32,11 +29,13 @@ static void bt_handler(bool connected) {
   if (buzz) {
     int ok = 1;
     if (buzz_mute == 1) {
-      int sec = time_start_of_today();
-      if (sec < (3600*6))
+      int sec = cur_time - time_start_of_today();
+      if (sec < (3600*6)) {
         ok = 0;
-      if (sec > (3600*22))
+      }
+      if (sec > (3600*22)) {
         ok = 0;
+      }
     } 
     if (ok) {
       if(connected) {
@@ -49,10 +48,52 @@ static void bt_handler(bool connected) {
   layer_mark_dirty(s_layer);
 }
 
+static void getWeather() {
+  if (!isJSRunning)
+    return;
+  
+  time_t age = (cur_time-temp_age)/3600;
+  
+  if (age > 0) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "Weather data is old, asking for more");
+    // Prepare dictionary
+    DictionaryIterator *iterator;
+    app_message_outbox_begin(&iterator);
+    // Write data
+    int key = MESSAGE_KEY_REFRESH;
+    int value = 1;
+    dict_write_int(iterator, key, &value, sizeof(int), true /* signed */);
+    // Send the data!
+    app_message_outbox_send();
+    temp_age = cur_time; // only ask every 60 minutes....   
+  } 
+}
+
+static void getForecast() {
+  if (!isJSRunning)
+    return;
+
+  time_t fore_age = (cur_time-temp_fore_age)/3600;
+
+  if (fore_age > 12) { // 12 hours old
+    APP_LOG(APP_LOG_LEVEL_INFO, "Forecast data is old, asking for more");
+    // Prepare dictionary
+    DictionaryIterator *iterator;
+    app_message_outbox_begin(&iterator);
+    // Write data
+    int key = MESSAGE_KEY_REFRESH;
+    int value = 2;
+    dict_write_int(iterator, key, &value, sizeof(int), true /* signed */);
+    // Send the data!
+    app_message_outbox_send();
+    temp_age = cur_time; // only ask every 60 minutes....  
+  }
+}
+
 static void update_time() {
   // Get a tm structure
-  ctime = time(NULL); 
-  ctick_time = localtime(&ctime);
+  cur_time = time(NULL); 
+  ctick_time = localtime(&cur_time);
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
@@ -61,18 +102,33 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
 }
 
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "Message received!");
-    // Get the first pair
+  // Get the first pair
   Tuple *data = dict_read_first(iterator);
   while (data) {
     APP_LOG(APP_LOG_LEVEL_INFO, "Key received: %d", (int)data->key);
-    switch(data->key) {
-      case TEMP:
+    if (data->key == MESSAGE_KEY_AppKeyReady) {
+        isJSRunning = true;
+        getWeather();
+        getForecast();
+    } else if (data->key == MESSAGE_KEY_TEMP) {
         temp = data->value->int32;
-        temp_age = ctime;
+        temp_age = cur_time;
+        persist_write_int(MESSAGE_KEY_TEMP, temp);
+        persist_write_int(MESSAGE_KEY_CONFIG_TEMP_AGE, cur_time);
         APP_LOG(APP_LOG_LEVEL_INFO, "Temp received: %d", temp);
-        break;
-      case CONFIG_TZ_OFFSET:
+    } else if (data->key == MESSAGE_KEY_TEMP_FORE_MIN) {
+        temp_fore_min = data->value->int32;
+        persist_write_int(MESSAGE_KEY_TEMP_FORE_MIN, temp_fore_min);
+        persist_write_int(MESSAGE_KEY_CONFIG_FORE_AGE, cur_time);
+        temp_fore_age = cur_time;
+        APP_LOG(APP_LOG_LEVEL_INFO, "Temp min received: %d", temp_fore_min);
+    } else if (data->key == MESSAGE_KEY_TEMP_FORE_MAX) {
+        temp_fore_max = data->value->int32;
+        persist_write_int(MESSAGE_KEY_TEMP_FORE_MAX, temp_fore_max);
+        persist_write_int(MESSAGE_KEY_CONFIG_FORE_AGE, cur_time);
+        temp_fore_age = cur_time; 
+        APP_LOG(APP_LOG_LEVEL_INFO, "Temp max received: %d", temp_fore_max);
+    } else if (data->key == MESSAGE_KEY_CONFIG_TZ_OFFSET) {
         switch (data->type) {
           case TUPLE_BYTE_ARRAY:
             APP_LOG(APP_LOG_LEVEL_INFO, "tz2 can't handle a byte array");
@@ -98,25 +154,20 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
             tz2 = data->value->int32;
             break;
         }
-        persist_write_int(CONFIG_TZ_OFFSET, tz2);
+        persist_write_int(MESSAGE_KEY_CONFIG_TZ_OFFSET, tz2);
         APP_LOG(APP_LOG_LEVEL_INFO, "Tz2: %d type: %d", tz2, data->type);
-        break;
-      case CONFIG_METRIC:
+    } else if(data->key == MESSAGE_KEY_CONFIG_METRIC) {
         metric = data->value->int8;
-        persist_write_int(CONFIG_METRIC, metric);
-        APP_LOG(APP_LOG_LEVEL_INFO, "Metric: %d %d %d %d", metric, data->value->int32, data->value->int16, data->type);
-        break;
-      case CONFIG_BUZZ:
+        persist_write_int(MESSAGE_KEY_CONFIG_METRIC, metric);
+        APP_LOG(APP_LOG_LEVEL_INFO, "Metric: %d %ld %d %d", metric, data->value->int32, data->value->int16, data->type);
+    } else if(data->key == MESSAGE_KEY_CONFIG_BUZZ) {
         buzz = data->value->int8;
-        persist_write_int(CONFIG_BUZZ, buzz);
+        persist_write_int(MESSAGE_KEY_CONFIG_BUZZ, buzz);
         APP_LOG(APP_LOG_LEVEL_INFO, "Buzz: %d", buzz);
-        break;
-      case CONFIG_BUZZ_MUTE:
+    } else if(data->key == MESSAGE_KEY_CONFIG_BUZZ_MUTE) {
         buzz_mute = data->value->int8;
-        persist_write_int(CONFIG_BUZZ_MUTE, buzz_mute);
+        persist_write_int(MESSAGE_KEY_CONFIG_BUZZ_MUTE, buzz_mute);
         APP_LOG(APP_LOG_LEVEL_INFO, "Buzz Mute: %d", buzz_mute);
-        break;
-      
     }
     data = dict_read_next(iterator);
   } 
@@ -142,7 +193,7 @@ static void draw_hour(Layer *this_layer, GContext *ctx, int offset, int tz_offse
   // to go to floating point
   int16_t min_per_pixel = (10*bounds.size.w)/100;
   
-  time_t otime = ctime+3600*(offset); 
+  time_t otime = cur_time+3600*(offset); 
   struct tm *tick_time = localtime(&otime);
 
   GRect frame = GRect(0+6*offset*min_per_pixel-(min_per_pixel*tick_time->tm_min)/10, y-font_height/2, 
@@ -175,7 +226,7 @@ static void draw_hour(Layer *this_layer, GContext *ctx, int offset, int tz_offse
 	  frame.origin.x += size.w/2 + 10;
 	  frame.origin.y += font_height - 18;
   
-	  otime = ctime+3600*(tz_offset+offset); 
+	  otime = cur_time+3600*(tz_offset+offset); 
 	  tick_time = localtime(&otime);
 	  strftime(s_buffer, sizeof(s_buffer), clock_is_24h_style() ?
 											  "%H" : "%I", tick_time);
@@ -252,7 +303,13 @@ static void draw_temp(Layer *this_layer, GContext *ctx, int y) {
   
   int16_t temp_conv = temp;
   if (!metric)
-    temp_conv = 90*temp/50 + 32;
+    temp_conv = 9*temp/5 + 320;
+  
+  // Round up
+  if ((temp_conv % 10) >= 5)
+    temp_conv += 5;
+  
+  temp_conv /= 10;
   
   int16_t deg;
   int16_t offset = 0-temp_conv*deg_per_pixel/10;
@@ -283,9 +340,39 @@ static void draw_temp(Layer *this_layer, GContext *ctx, int y) {
     	GTextOverflowModeTrailingEllipsis,
     	GTextAlignmentCenter,
     	NULL
-  	  );  	  
-  	    
+  	  );  	  	    
   }
+  
+  if (temp_fore_min != INVALID_TEMP) { 
+    int16_t temp_conv_min = temp_fore_min;
+    int16_t temp_conv_max = temp_fore_max;
+    if (!metric) {
+      temp_conv_min = 9*temp_conv_min/5 + 320;
+      temp_conv_max = 9*temp_conv_max/5 + 320;
+    }
+    
+    if ((temp_conv_min % 10) >= 5)
+      temp_conv_min += 5;
+    if ((temp_conv_max % 10) >= 5)
+      temp_conv_max += 5;
+  
+    
+    temp_conv_min /= 10;
+    temp_conv_max /= 10;
+    
+    int16_t tick_min = (temp_conv_min-temp_conv)*deg_per_pixel/10+bounds.size.w/2;
+    int16_t tick_max = (temp_conv_max-temp_conv)*deg_per_pixel/10+bounds.size.w/2;
+    
+    APP_LOG(APP_LOG_LEVEL_INFO, "Temp: %d Ticks at %d and %d", temp_conv, (temp_conv_min-temp_conv), tick_min);
+    
+    graphics_context_set_fill_color(ctx, COLOR_FALLBACK(GColorCeleste, GColorLightGray));
+    graphics_fill_rect(ctx, 
+                       GRect(tick_min-4, y-10, 8, 5), 0, GCornerNone);
+    
+    graphics_context_set_fill_color(ctx, COLOR_FALLBACK(GColorRed, GColorDarkGray));
+    graphics_fill_rect(ctx, 
+                       GRect(tick_max-4, y-10, 8, 5), 0, GCornerNone);
+  }  
 }
 
 #define GREATER(x,y) ((x>y) ? (x) : (y))
@@ -327,12 +414,49 @@ static void draw_step(Layer *this_layer, GContext *ctx, int y, int total_steps) 
   }
 }
 
+static void draw_bpm(Layer *this_layer, GContext *ctx, int y, int current_bpm) {
+  GRect bounds = layer_get_bounds(this_layer);
+
+  int16_t step_per_pixel = (25*bounds.size.w)/100;
+  
+  int16_t offset = 0-current_bpm*step_per_pixel/10;
+  
+  int bpm = current_bpm-(current_bpm % 5);
+  for(bpm = GREATER(bpm-25, 0); bpm <= current_bpm+25; bpm += 5) {
+      if (bpm%15) {
+  	    int16_t x = bpm*step_per_pixel/10+offset+bounds.size.w/2;
+  	    if (x > 0 && x < bounds.size.w)
+    	  	graphics_draw_line(ctx, GPoint(x, y), GPoint(x, y+3));
+      }
+  }
+
+  bpm = current_bpm-(current_bpm % 15);
+  for(bpm = GREATER(bpm-30, 0); bpm <= current_bpm+30; bpm += 15) {
+  	  int16_t x = bpm*step_per_pixel/10+offset;
+  	  
+  	  GRect frame = GRect(x, y-8, bounds.size.w, 14);
+  	  
+  	  static char s_buffer[12];
+  	  snprintf(s_buffer, 10, "%d", bpm);
+  	  
+  	  graphics_draw_text(ctx, 
+  	  	s_buffer,
+    	fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+    	frame,
+    	GTextOverflowModeTrailingEllipsis,
+    	GTextAlignmentCenter,
+    	NULL
+  	  );  	  
+  	    
+  }
+}
+
 static void draw_day(Layer *this_layer, GContext *ctx, int day, int y) {
   GRect bounds = layer_get_bounds(this_layer);
 
   int16_t pixels_per_day = (100*bounds.size.w)/3;
   
-  time_t otime = ctime + day*86400;
+  time_t otime = cur_time + day*86400;
   struct tm *tick_time = localtime(&otime);
   
   int16_t percent_of_day = (tick_time->tm_hour*3600 + tick_time->tm_min*60)/864;
@@ -461,7 +585,7 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
   uint16_t ms_fill = time_ms(NULL, NULL);
   
   graphics_context_set_stroke_color(ctx, COLOR_FALLBACK(GColorRed, GColorWhite));
-#ifdef PBL_PLATFORM_APLITE
+#if defined(PBL_PLATFORM_APLITE) || defined(PBL_PLATFORM_DIORITE)
   graphics_context_set_stroke_width(ctx, 1);
 #else
     graphics_context_set_stroke_width(ctx, 3);
@@ -499,19 +623,9 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
     draw_temp(this_layer, ctx, bounds.size.h/2+75);
   } 
   
-  if ((ctime-temp_age) > 5400) {
-    // Prepare dictionary
-    DictionaryIterator *iterator;
-    app_message_outbox_begin(&iterator);
-    // Write data
-    int key = REFRESH;
-    int value = 1;
-    dict_write_int(iterator, key, &value, sizeof(int), true /* signed */);
-    // Send the data!
-    app_message_outbox_send();
-    temp_age = ctime; // only ask every 90 minutes....
-  }
-
+  getWeather();
+  getForecast();
+  
   uint16_t ms_end = time_ms(NULL, NULL);
   
   draw_bat(this_layer, ctx, 0);
@@ -519,12 +633,22 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
 #if defined(PBL_HEALTH)
   // Check step data is available
   HealthServiceAccessibilityMask mask = health_service_metric_accessible(HealthMetricStepCount, 
-                                                                    time_start_of_today(), ctime);
+                                                                    time_start_of_today(), cur_time);
   
   if(mask & HealthServiceAccessibilityMaskAvailable) {
     // Data is available!
     int total_steps = (int)health_service_sum_today(HealthMetricStepCount);
-    draw_step(this_layer, ctx, 25, total_steps);
+    draw_step(this_layer, ctx, 22, total_steps);
+  }
+  
+  time_t end_time = time(NULL);
+  time_t start_time = end_time - 600;
+  
+  HealthServiceAccessibilityMask hr = health_service_metric_accessible(HealthMetricHeartRateBPM, start_time, end_time);
+  if (hr & HealthServiceAccessibilityMaskAvailable) {
+    uint32_t bpm = health_service_peek_current_value(HealthMetricHeartRateBPM);
+    APP_LOG(APP_LOG_LEVEL_INFO, "HR: %d", (int)bpm);
+    draw_bpm(this_layer, ctx, 9, bpm);
   }
 #endif
   
@@ -537,27 +661,8 @@ static void canvas_update_proc(Layer *this_layer, GContext *ctx) {
   ms_end = ms_end < ms_start ? ms_end + 1000 : ms_end;
   
   static uint16_t tt_max = 0;
-  if(ms_end-ms_start > tt_max)
+  if ((ms_end-ms_start) > tt_max)
   	tt_max = ms_end-ms_start;
-  
-//   char buf[20];
-//   snprintf(buf, 19, "%d %d %d %d %d %d", repaints, tt_max, 
-//   	ms_fill-ms_start,
-//   	ms_hour-ms_start,
-//   	ms_day-ms_start,
-//   	ms_end-ms_start);
-  
-  //APP_LOG(APP_LOG_LEVEL_INFO, buf);
-  
-//   GRect repaint_box = GRect(5, bounds.size.h-18, bounds.size.w, 18);
-//   graphics_draw_text(ctx, 
-//     buf,
-//     fonts_get_system_font(FONT_KEY_GOTHIC_18),
-//     repaint_box,
-//     GTextOverflowModeTrailingEllipsis,
-//     GTextAlignmentLeft,
-//     NULL
-//   );
   
 }
 
@@ -569,14 +674,7 @@ static void main_window_load(Window *window) {
   // Create the TextLayer with specific bounds
   s_layer = layer_create(
       GRect(0, 0, bounds.size.w, bounds.size.h));
-
-  // Improve the layout to be more like a watchface
-//   layer_set_background_color(s_layer, GColorClear);
-//   text_layer_set_text_color(s_time_layer, GColorBlack);
-//   text_layer_set_text(s_time_layer, "00:00");
-//   text_layer_set_font(s_time_layer, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
-//   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
-  
+ 
   // Set the update_proc
   layer_set_update_proc(s_layer, canvas_update_proc);
   
@@ -589,6 +687,14 @@ static void main_window_load(Window *window) {
 static void main_window_unload(Window *window) {
 	// Destroy TextLayer
 	layer_destroy(s_layer);
+}
+
+static void on_health_data(HealthEventType type, void *context) {
+  // If the update was from the Heart Rate Monitor, query it
+  if (type == HealthEventHeartRateUpdate) {
+    HealthValue value = health_service_peek_current_value(HealthMetricHeartRateBPM);
+      APP_LOG(APP_LOG_LEVEL_INFO, "Heart Rate BPM %d", (int)value);
+  }
 }
 
 static void init() {
@@ -615,16 +721,31 @@ static void init() {
   
   app_message_open(64, 64);
   
-  if (persist_exists(CONFIG_TZ_OFFSET))
-    tz2 = persist_read_int(CONFIG_TZ_OFFSET);
-  if (persist_exists(CONFIG_METRIC))
-    metric = persist_read_int(CONFIG_METRIC);
-  if (persist_exists(CONFIG_BUZZ))
-    buzz = persist_read_int(CONFIG_BUZZ);
-  if (persist_exists(CONFIG_BUZZ_MUTE))
-    buzz_mute = persist_read_int(CONFIG_BUZZ_MUTE);
+  if (persist_exists(MESSAGE_KEY_CONFIG_TZ_OFFSET))
+    tz2 = persist_read_int(MESSAGE_KEY_CONFIG_TZ_OFFSET);
+  if (persist_exists(MESSAGE_KEY_CONFIG_METRIC))
+    metric = persist_read_int(MESSAGE_KEY_CONFIG_METRIC);
+  if (persist_exists(MESSAGE_KEY_CONFIG_BUZZ))
+    buzz = persist_read_int(MESSAGE_KEY_CONFIG_BUZZ);
+  if (persist_exists(MESSAGE_KEY_CONFIG_BUZZ_MUTE))
+    buzz_mute = persist_read_int(MESSAGE_KEY_CONFIG_BUZZ_MUTE);
+  if (persist_exists(MESSAGE_KEY_CONFIG_TEMP_AGE))
+    temp_age = persist_read_int(MESSAGE_KEY_CONFIG_TEMP_AGE);
+  if (persist_exists(MESSAGE_KEY_TEMP))
+    temp = persist_read_int(MESSAGE_KEY_TEMP);
+  if (persist_exists(MESSAGE_KEY_TEMP_FORE_MAX))
+    temp_fore_max = persist_read_int(MESSAGE_KEY_TEMP_FORE_MAX);
+  if (persist_exists(MESSAGE_KEY_TEMP_FORE_MIN))
+    temp_fore_min = persist_read_int(MESSAGE_KEY_TEMP_FORE_MIN);
+  if (persist_exists(MESSAGE_KEY_CONFIG_FORE_AGE))
+    temp_fore_age = persist_read_int(MESSAGE_KEY_CONFIG_FORE_AGE);
   
-
+  health_service_events_subscribe(on_health_data, NULL);
+ 
+  APP_LOG(APP_LOG_LEVEL_INFO, "temp info age: %d (%d)", (int)(cur_time-temp_age), temp);
+  APP_LOG(APP_LOG_LEVEL_INFO, "forecast info age: %d (%d,%d)", (int)(cur_time-temp_fore_age), 
+          temp_fore_max, temp_fore_min);
+  
 }
 
 static void deinit() {

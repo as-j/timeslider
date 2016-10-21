@@ -1,0 +1,46 @@
+{
+    "author": "MakeASJHappen",
+    "dependencies": {
+        "pebble-clay": "^1.0.0"
+    },
+    "keywords": [],
+    "name": "timeslider",
+    "pebble": {
+        "capabilities": [
+            "location",
+            "configurable",
+            "health"
+        ],
+        "displayName": "timeslider",
+        "enableMultiJS": true,
+        "messageKeys": [
+            "AppKeyReady",
+            "REFRESH",
+            "TEMP",
+            "TEMP_FORE_MIN",
+            "TEMP_FORE_MAX",
+            "CONFIG_TZ_OFFSET",
+            "CONFIG_METRIC",
+            "CONFIG_BUZZ",
+            "CONFIG_BUZZ_MUTE",
+            "CONFIG_FORE_AGE",
+            "CONFIG_TEMP_AGE"
+        ],
+        "projectType": "native",
+        "resources": {
+            "media": []
+        },
+        "sdkVersion": "3",
+        "targetPlatforms": [
+            "aplite",
+            "basalt",
+            "chalk",
+            "diorite"
+        ],
+        "uuid": "4721b502-603b-4e5a-86fe-e91b63d12425",
+        "watchapp": {
+            "watchface": true
+        }
+    },
+    "version": "1.8.0"
+}

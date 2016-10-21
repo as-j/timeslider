@@ -10,19 +10,19 @@ module.exports = [
       },
       {
         type:"toggle", 
-        "appKey": "CONFIG_METRIC",
+        "messageKey": "CONFIG_METRIC",
         "label": "Metric",
         defaultValue:true
       },
       {
         type:"toggle", 
-        "appKey": "CONFIG_BUZZ",
+        "messageKey": "CONFIG_BUZZ",
         "label": "Vibrate on Bt disconnect",
         defaultValue:true
       },
       {
         type:"toggle", 
-        appKey: "CONFIG_BUZZ_MUTE",
+        messageKey: "CONFIG_BUZZ_MUTE",
         label: "Mute vibration at night",
         defaultValue:true
       }
@@ -38,13 +38,8 @@ module.exports = [
     [
       {
         type:"input",
-        appKey:"CONFIG_TZ_OFFSET",
-        defaultValue:"18",
-        attributes: {
-          type: "number",
-          min: "-24",
-          max: "24"
-        }
+        messageKey:"CONFIG_TZ_OFFSET",
+        defaultValue:"18"
       }
     ]
   },
